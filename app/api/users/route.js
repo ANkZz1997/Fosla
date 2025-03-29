@@ -1,14 +1,12 @@
 import UserDevi from "@/models/UserDevi";
 import { connectToDatabase } from "@/app/utils/mongoose";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 import dotenv from "dotenv";
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 dotenv.config();
 
-
-// Initialize S3 client
+// ✅ Initialize S3 client
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
   credentials: {
@@ -17,7 +15,21 @@ const s3Client = new S3Client({
   },
 });
 
-// Connect to MongoDB
+// ✅ CORS handler function
+const setCorsHeaders = (response) => {
+  response.headers.set("Access-Control-Allow-Origin", "*");
+  response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return response;
+};
+
+// ✅ Handle OPTIONS requests for CORS preflight
+export async function OPTIONS() {
+  const response = new NextResponse(null, { status: 204 });
+  return setCorsHeaders(response);
+}
+
+// ✅ Connect to MongoDB
 async function connectDB() {
   await connectToDatabase();
 }
@@ -41,16 +53,15 @@ export async function GET(request) {
     if (id) {
       users = await UserDevi.findById(id);
       if (!users) {
-        return NextResponse.json(
-          { message: "User not found" },
-          { status: 404 }
-        );
+        const response = NextResponse.json({ message: "User not found" }, { status: 404 });
+        return setCorsHeaders(response);
       }
 
-      return NextResponse.json(
+      const response = NextResponse.json(
         { message: "User fetched successfully", user: users },
         { status: 200 }
       );
+      return setCorsHeaders(response);
     } else {
       const query = {
         $or: [
@@ -63,7 +74,7 @@ export async function GET(request) {
       users = await UserDevi.find(query).skip(skip).limit(limit);
       const totalUsers = await UserDevi.countDocuments(query);
 
-      return NextResponse.json(
+      const response = NextResponse.json(
         {
           message: "Users fetched successfully",
           users,
@@ -73,13 +84,12 @@ export async function GET(request) {
         },
         { status: 200 }
       );
+      return setCorsHeaders(response);
     }
   } catch (error) {
     console.error("Error fetching users:", error);
-    return NextResponse.json(
-      { message: "Failed to fetch users" },
-      { status: 500 }
-    );
+    const response = NextResponse.json({ message: "Failed to fetch users" }, { status: 500 });
+    return setCorsHeaders(response);
   }
 }
 
@@ -98,13 +108,11 @@ export async function POST(req) {
     const photoFile = formData.get("photo");
 
     if (!firstName || !lastName || !email || !phone) {
-      return NextResponse.json(
-        { message: "All fields are required" },
-        { status: 400 }
-      );
+      const response = NextResponse.json({ message: "All fields are required" }, { status: 400 });
+      return setCorsHeaders(response);
     }
 
-    // Upload files to S3
+    // ✅ Upload files to S3
     const documentUrls = [];
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -123,7 +131,7 @@ export async function POST(req) {
       );
     }
 
-    // Upload photo if provided
+    // ✅ Upload photo if provided
     let photoUrl = "";
     if (photoFile) {
       const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
@@ -140,7 +148,7 @@ export async function POST(req) {
       photoUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${photoKey}`;
     }
 
-    // Save to MongoDB
+    // ✅ Save to MongoDB
     const newUser = new UserDevi({
       firstname: firstName.toLowerCase(),
       lastname: lastName.toLowerCase(),
@@ -153,16 +161,15 @@ export async function POST(req) {
 
     await newUser.save();
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       { message: "User created successfully", user: newUser },
       { status: 201 }
     );
+    return setCorsHeaders(response);
   } catch (error) {
     console.error("Error:", error);
-    return NextResponse.json(
-      { message: "Failed to create user" },
-      { status: 500 }
-    );
+    const response = NextResponse.json({ message: "Failed to create user" }, { status: 500 });
+    return setCorsHeaders(response);
   }
 }
 
@@ -176,7 +183,8 @@ export async function PUT(request) {
 
     const user = await UserDevi.findById(id);
     if (!user) {
-      return NextResponse.json({ message: "User not found" }, { status: 404 });
+      const response = NextResponse.json({ message: "User not found" }, { status: 404 });
+      return setCorsHeaders(response);
     }
 
     const formData = await request.formData();
@@ -208,7 +216,6 @@ export async function PUT(request) {
     // ✅ Remove specified documents from S3
     if (removeDoc.length > 0) {
       for (const doc of removeDoc) {
-        // Extract the file key from the S3 URL
         const fileKey = doc.replace(
           `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/`,
           ""
@@ -220,31 +227,27 @@ export async function PUT(request) {
         };
 
         try {
-          await s3Client.send(new DeleteObjectCommand(deleteParams));  // Deleting from S3
-          console.log(`Deleted: ${fileKey}`);
+          await s3Client.send(new DeleteObjectCommand(deleteParams));
         } catch (error) {
           console.error(`Failed to delete ${fileKey}:`, error);
         }
 
-        // Remove the deleted document from MongoDB
         user.documents = user.documents.filter((item) => item !== doc);
       }
     }
 
-    // ✅ Combine existing and new documents
     user.documents = [...user.documents, ...documentUrls];
 
     await user.save();
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       { message: "Documents updated successfully", documents: user.documents },
       { status: 200 }
     );
+    return setCorsHeaders(response);
   } catch (e) {
     console.error("Error updating user:", e);
-    return NextResponse.json(
-      { message: "Failed to update user" },
-      { status: 500 }
-    );
+    const response = NextResponse.json({ message: "Failed to update user" }, { status: 500 });
+    return setCorsHeaders(response);
   }
 }
