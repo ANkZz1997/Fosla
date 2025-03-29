@@ -1,2 +1,2 @@
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+const BACKEND_URL = "http://13.201.229.74:3000"
 export default BACKEND_URL
